@@ -1,3 +1,7 @@
+use async_std::{stream::StreamExt as _, task};
+use async_stream::stream;
+use futures_core::stream::Stream;
+use futures_util::pin_mut;
 use std::{env::args, fs::read_to_string};
 
 #[derive(Copy, Clone)]
@@ -40,37 +44,37 @@ impl Grid {
         self.0[row][col]
     }
 
-    fn neighbours(&self, row: usize, col: usize) -> Vec<Cell> {
-        let mut result = Vec::new();
-        if row > 0 {
+    fn neighbours(&self, row: usize, col: usize) -> impl Stream<Item = Cell> {
+        stream! {
+            if row > 0 {
+                if col > 0 {
+                    yield self.0[row - 1][col - 1];
+                }
+                yield self.0[row - 1][col];
+                if col < self.cols() - 1 {
+                    yield self.0[row - 1][col + 1];
+                }
+            }
             if col > 0 {
-                result.push(self.0[row - 1][col - 1]);
+                yield self.0[row][col - 1];
             }
-            result.push(self.0[row - 1][col]);
             if col < self.cols() - 1 {
-                result.push(self.0[row - 1][col + 1]);
+                yield self.0[row][col + 1];
+            }
+            if row < self.rows() - 1 {
+                if col > 0 {
+                    yield self.0[row + 1][col - 1];
+                }
+                yield self.0[row + 1][col];
+                if col < self.cols() - 1 {
+                    yield self.0[row + 1][col + 1];
+                }
             }
         }
-        if col > 0 {
-            result.push(self.0[row][col - 1]);
-        }
-        if col < self.cols() - 1 {
-            result.push(self.0[row][col + 1]);
-        }
-        if row < self.rows() - 1 {
-            if col > 0 {
-                result.push(self.0[row + 1][col - 1]);
-            }
-            result.push(self.0[row + 1][col]);
-            if col < self.cols() - 1 {
-                result.push(self.0[row + 1][col + 1]);
-            }
-        }
-        result
     }
 }
 
-fn count_free_rolls(input: &str) -> usize {
+async fn count_free_rolls(input: &str) -> usize {
     let grid = Grid::from_str(input);
     let mut count = 0;
     for row in 0..grid.rows() {
@@ -78,11 +82,14 @@ fn count_free_rolls(input: &str) -> usize {
             if !matches!(grid.cell_at(row, col), Cell::Roll) {
                 continue;
             }
-            let occupied_sides = grid
+            let mut occupied_sides = 0;
+            let neighbours = grid
                 .neighbours(row, col)
-                .into_iter()
-                .filter(|n| matches!(n, Cell::Roll))
-                .count();
+                .filter(|neighbour| matches!(neighbour, Cell::Roll));
+            pin_mut!(neighbours);
+            while let Some(_) = neighbours.next().await {
+                occupied_sides += 1;
+            }
             if occupied_sides < 4 {
                 count += 1;
             }
@@ -94,15 +101,15 @@ fn count_free_rolls(input: &str) -> usize {
 fn main() {
     let input = read_to_string(args().last().expect("Must specify an input file"))
         .expect("Could not read input file");
-    let count = count_free_rolls(&input);
+    let count = task::block_on(count_free_rolls(&input));
     println!("Count: {count}");
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read_to_string;
-
     use super::count_free_rolls;
+    use async_std::task;
+    use std::fs::read_to_string;
 
     #[test]
     fn should_work_on_example() {
@@ -119,13 +126,13 @@ mod tests {
             @.@.@@@.@.
         "#;
 
-        assert_eq!(count_free_rolls(input), 13);
+        assert_eq!(task::block_on(count_free_rolls(input)), 13);
     }
 
     #[test]
     fn should_work_on_large_test_data() {
         let input = read_to_string("../../input.txt").expect("Cannot open file");
 
-        assert_eq!(count_free_rolls(&input), 1491);
+        assert_eq!(task::block_on(count_free_rolls(&input)), 1491);
     }
 }
