@@ -86,6 +86,7 @@ async fn count_free_rolls(input: &str) -> usize {
             let neighbours = grid
                 .neighbours(row, col)
                 .filter(|neighbour| matches!(neighbour, Cell::Roll));
+            // count() exists but is available on unstable only.
             pin_mut!(neighbours);
             while let Some(_) = neighbours.next().await {
                 occupied_sides += 1;
